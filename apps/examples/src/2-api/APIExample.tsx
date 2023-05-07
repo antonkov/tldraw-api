@@ -1,4 +1,4 @@
-import { App, LABEL_FONT_SIZES, TEXT_PROPS, Tldraw } from '@tldraw/tldraw'
+import { App, LABEL_FONT_SIZES, TEXT_PROPS, TLParentId, Tldraw } from '@tldraw/tldraw'
 import '@tldraw/tldraw/editor.css'
 import '@tldraw/tldraw/ui.css'
 
@@ -57,7 +57,12 @@ const proof: ProofStep[] = [
 
 export default function Example() {
 	const handleMount = (app: App) => {
-		const createNode = (text: string, x: number, y: number): number => {
+		const createNode = (
+			parentId: TLParentId | undefined,
+			text: string,
+			x: number,
+			y: number
+		): [number, number] => {
 			const size = app.textMeasure.measureText({
 				...TEXT_PROPS,
 				text,
@@ -68,10 +73,11 @@ export default function Example() {
 			})
 			app.createShapes([
 				{
-					id: app.createShapeId(text),
+					id: app.createShapeId(),
 					type: 'geo',
 					x,
 					y,
+					parentId,
 					props: {
 						geo: 'rectangle',
 						// Don't know how to calculate size correctly yet
@@ -85,32 +91,72 @@ export default function Example() {
 					},
 				},
 			])
-			return y + size.h
+			return [size.w * 1.3, size.h]
 		}
 		app.selectAll().deleteShapes()
 		// Create a shape id
 		app.focus()
 
 		// Draws `steps` starting at `y` and returns the lowest y value after drawing
-		function draw(y: number, steps: ProofStep[]): number {
+		function draw(
+			parentId: TLParentId | undefined,
+			y: number,
+			steps: ProofStep[]
+		): [number, number] {
 			if (steps.length === 0) {
-				return y
+				return [0, 0]
 			}
 			const [step, ...rest] = steps
 			if ('fromNode' in step) {
 				if (step.fromNode === '⊢') {
-					return draw(createNode(step.tacticString, 0, y) + 20, rest)
+					const nodeSize = createNode(parentId, step.tacticString, 20, y)
+					const restSize = draw(parentId, y + nodeSize[1] + 20, rest)
+					return [Math.max(nodeSize[0] + 40, restSize[0]), nodeSize[1] + 20 + restSize[1]]
 				} else {
-					y = draw(y, rest) + 20
-					return createNode(step.tacticString, 0, y)
+					const restSize = draw(parentId, y, rest)
+					const nodeSize = createNode(
+						parentId,
+						step.tacticString,
+						20,
+						restSize[1] + y + (rest.length > 0 ? 20 : 0)
+					)
+					return [
+						Math.max(nodeSize[0] + 40, restSize[0]),
+						nodeSize[1] + (rest.length > 0 ? 20 : 0) + restSize[1],
+					]
 				}
 			} else {
-				y = draw(y, step.edges) + 20
-				y = createNode(step.name, 0, y)
-				return draw(y, rest)
+				const frameSize = (() => {
+					if (step.edges.length > 0) {
+						const frameId = app.createShapeId()
+						app.createShapes([
+							{
+								id: frameId,
+								type: 'frame',
+								x: 20,
+								y,
+								props: {},
+								parentId,
+							},
+						])
+						const frameSize = draw(frameId, 20, step.edges)
+						app.updateShapes([
+							{ id: frameId, type: 'frame', props: { h: frameSize[1] + 40, w: frameSize[0] } },
+						])
+						return [frameSize[0] + 40, frameSize[1] + 40]
+					} else {
+						return [0, 0]
+					}
+				})()
+				const nodeSize = createNode(parentId, step.name, 20, y + frameSize[1])
+				const restSize = draw(parentId, y + frameSize[1] + nodeSize[1] + 20, rest)
+				return [
+					Math.max(nodeSize[0] + 40, Math.max(restSize[0], frameSize[0])),
+					nodeSize[1] + 20 + restSize[1] + frameSize[1],
+				]
 			}
 		}
-		draw(0, proof)
+		draw(undefined, 0, proof)
 
 		// Zoom the camera to fit both shapes
 		app.zoomToFit()
