@@ -10,49 +10,71 @@ import '@tldraw/tldraw/ui.css'
 // send events, observe changes, and perform actions.
 
 type ProofStep =
-	| { fromNode: string; toNode: string; tacticString: string }
+	| { fromNode: string; toNode: string; tacticString: string; hypName: string | null }
 	| { name: string; edges: ProofStep[] }
 
 const proof: ProofStep[] = [
 	{
 		toNode: '∃ p, p ≥ N ∧ Nat.Prime p',
 		tacticString: 'intro N',
+		hypName: null,
 		fromNode: '∀ (N : ℕ), ∃ p, p ≥ N ∧ Nat.Prime p',
 	},
-	{ toNode: 'ℕ', tacticString: 'intro N', fromNode: '⊢' },
-	{ toNode: 'ℕ', tacticString: 'let M := Nat.factorial N + 1', fromNode: '⊢' },
-	{ toNode: 'ℕ', tacticString: 'let p := Nat.minFac M', fromNode: '⊢' },
+	{ toNode: 'ℕ', tacticString: 'intro N', hypName: 'N', fromNode: '⊢' },
+	{ toNode: 'ℕ', tacticString: 'let M := Nat.factorial N + 1', hypName: 'M', fromNode: '⊢' },
+	{ toNode: 'ℕ', tacticString: 'let p := Nat.minFac M', hypName: 'p', fromNode: '⊢' },
 	{
 		name: 'have pp : Nat.Prime p',
 		edges: [
-			{ toNode: 'M ≠ 1', tacticString: 'apply Nat.minFac_prime', fromNode: 'Nat.Prime p' },
+			{
+				toNode: 'M ≠ 1',
+				tacticString: 'apply Nat.minFac_prime',
+				hypName: null,
+				fromNode: 'Nat.Prime p',
+			},
 			{ name: 'have fac_pos: 0 < Nat.factorial N', edges: [] },
-			{ toNode: '⊢', tacticString: 'linarith', fromNode: 'M ≠ 1' },
+			{ toNode: '⊢', tacticString: 'linarith', hypName: null, fromNode: 'M ≠ 1' },
 		],
 	},
 	{
 		name: 'have ppos: p ≥ N',
 		edges: [
-			{ toNode: '¬p ≥ N → False', tacticString: 'apply by_contradiction', fromNode: 'p ≥ N' },
-			{ toNode: 'False', tacticString: 'intro pln', fromNode: '¬p ≥ N → False' },
-			{ toNode: '¬p ≥ N', tacticString: 'intro pln', fromNode: '⊢' },
+			{
+				toNode: '¬p ≥ N → False',
+				tacticString: 'apply by_contradiction',
+				hypName: null,
+				fromNode: 'p ≥ N',
+			},
+			{ toNode: 'False', tacticString: 'intro pln', hypName: null, fromNode: '¬p ≥ N → False' },
+			{ toNode: '¬p ≥ N', tacticString: 'intro pln', hypName: 'pln', fromNode: '⊢' },
 			{
 				name: 'have h₁ : p ∣ Nat.factorial N',
 				edges: [
 					{
 						toNode: 'p ≤ N',
 						tacticString: 'apply pp.dvd_factorial.mpr',
+						hypName: null,
 						fromNode: 'p ∣ Nat.factorial N',
 					},
-					{ toNode: '⊢', tacticString: 'exact le_of_not_ge pln', fromNode: 'p ≤ N' },
+					{ toNode: '⊢', tacticString: 'exact le_of_not_ge pln', hypName: null, fromNode: 'p ≤ N' },
 				],
 			},
 			{ name: 'have h₂ : p ∣ Nat.factorial N + 1', edges: [] },
 			{ name: 'have h : p ∣ 1', edges: [] },
-			{ toNode: '⊢', tacticString: 'exact Nat.Prime.not_dvd_one pp h', fromNode: 'False' },
+			{
+				toNode: '⊢',
+				tacticString: 'exact Nat.Prime.not_dvd_one pp h',
+				hypName: null,
+				fromNode: 'False',
+			},
 		],
 	},
-	{ toNode: '⊢', tacticString: 'exact ⟨ p, ppos, pp ⟩', fromNode: '∃ p, p ≥ N ∧ Nat.Prime p' },
+	{
+		toNode: '⊢',
+		tacticString: 'exact ⟨ p, ppos, pp ⟩',
+		hypName: null,
+		fromNode: '∃ p, p ≥ N ∧ Nat.Prime p',
+	},
 ]
 
 export default function Example() {
@@ -61,7 +83,8 @@ export default function Example() {
 			parentId: TLParentId | undefined,
 			text: string,
 			x: number,
-			y: number
+			y: number,
+			type: 'value' | 'tactic' = 'value'
 		): [number, number] => {
 			const size = app.textMeasure.measureText({
 				...TEXT_PROPS,
@@ -83,9 +106,9 @@ export default function Example() {
 						// Don't know how to calculate size correctly yet
 						w: size.w * 1.3,
 						h: size.h,
-						dash: 'draw',
-						fill: 'solid',
-						color: 'light-green',
+						...(type == 'value'
+							? { dash: 'draw', fill: 'solid', color: 'light-green' }
+							: { dash: 'dotted', fill: 'none', color: 'grey' }),
 						size: 'm',
 						text,
 					},
@@ -109,17 +132,33 @@ export default function Example() {
 			const [step, ...rest] = steps
 			if ('fromNode' in step) {
 				if (step.fromNode === '⊢') {
-					const nodeSize = createNode(parentId, step.tacticString, 20, y)
+					const nodeSize = createNode(
+						parentId,
+						step.tacticString.includes('let')
+							? step.tacticString
+							: `${step.hypName} : ${step.toNode}`,
+						20,
+						y
+					)
 					const restSize = draw(parentId, y + nodeSize[1] + 20, rest)
 					return [Math.max(nodeSize[0] + 40, restSize[0]), nodeSize[1] + 20 + restSize[1]]
 				} else {
 					const restSize = draw(parentId, y, rest)
-					const nodeSize = createNode(
+					const tacticSize = createNode(
 						parentId,
 						step.tacticString,
 						20,
-						restSize[1] + y + (rest.length > 0 ? 20 : 0)
+						restSize[1] + y + (rest.length > 0 ? 20 : 0),
+						'tactic'
 					)
+					const valueSize = createNode(
+						parentId,
+						step.fromNode,
+						20,
+						restSize[1] + y + (rest.length > 0 ? 20 : 0) + tacticSize[1],
+						'value'
+					)
+					const nodeSize = [tacticSize[0] + valueSize[0], tacticSize[1] + valueSize[1]]
 					return [
 						Math.max(nodeSize[0] + 40, restSize[0]),
 						nodeSize[1] + (rest.length > 0 ? 20 : 0) + restSize[1],
@@ -156,6 +195,7 @@ export default function Example() {
 				]
 			}
 		}
+		console.log('Drawing', proof)
 		draw(undefined, 0, proof)
 
 		// Zoom the camera to fit both shapes
