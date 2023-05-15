@@ -13,7 +13,6 @@ import { defaultEmptyAs } from '../../../utils/string'
 import { TLExportColors } from '../shared/TLExportColors'
 import { TLBoxUtil } from '../TLBoxUtil'
 import { OnResizeEndHandler } from '../TLShapeUtil'
-import { FrameHeading } from './components/FrameHeading'
 
 /** @public */
 export class TLFrameUtil extends TLBoxUtil<TLFrameShape> {
@@ -41,12 +40,6 @@ export class TLFrameUtil extends TLBoxUtil<TLFrameShape> {
 						fill="none"
 					/>
 				</SVGContainer>
-				<FrameHeading
-					id={shape.id}
-					name={shape.props.name}
-					width={bounds.width}
-					height={bounds.height}
-				/>
 			</>
 		)
 	}
