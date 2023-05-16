@@ -79,21 +79,15 @@ const proof: ProofStep[] = [
 
 export default function Example() {
 	const handleMount = (app: App) => {
-		const createNode = (
+		const inBetweenMargin = 20
+		const framePadding = 20
+
+		const drawNode = (
 			parentId: TLParentId | undefined,
 			text: string,
-			x: number,
-			y: number,
-			type: 'value' | 'tactic' = 'value'
-		): [number, number] => {
-			const size = app.textMeasure.measureText({
-				...TEXT_PROPS,
-				text,
-				fontFamily: 'draw',
-				fontSize: LABEL_FONT_SIZES['m'],
-				width: 'fit-content',
-				padding: '16px',
-			})
+			[x, y]: [number, number],
+			[w, h]: [number, number]
+		) => {
 			app.createShapes([
 				{
 					id: app.createShapeId(),
@@ -103,9 +97,73 @@ export default function Example() {
 					parentId,
 					props: {
 						geo: 'rectangle',
-						// Don't know how to calculate size correctly yet
-						w: size.w * 1.3,
-						h: size.h,
+						w,
+						h,
+						...{ dash: 'draw', fill: 'solid', color: 'light-green' },
+						/*...(type == 'value'
+							? { dash: 'draw', fill: 'solid', color: 'light-green' }
+							: { dash: 'dotted', fill: 'none', color: 'grey' }),*/
+						size: 'm',
+						text,
+					},
+				},
+			])
+		}
+
+		function getFrameSize(nodes: Node[]): [number, number] {
+			const size = nodes
+				.map(getSize)
+				.reduce((acc, [w, h]) => [Math.max(acc[0], w), acc[1] + h], [0, 0])
+			return [
+				size[0] + framePadding * 2,
+				size[1] + inBetweenMargin * (nodes.length - 1) + framePadding * 2,
+			]
+		}
+
+		function getSize(node: Node): [number, number] {
+			if (node.type === 'value') {
+				const size = app.textMeasure.measureText({
+					...TEXT_PROPS,
+					text: node.text,
+					fontFamily: 'draw',
+					fontSize: LABEL_FONT_SIZES['m'],
+					width: 'fit-content',
+					padding: '16px',
+				})
+				return [
+					// Don't know how to calculate size correctly yet
+					size.w * 1.3,
+					size.h,
+				]
+			} else {
+				const nodeSize = getSize({ type: 'value', text: node.name })
+				const n = node.nodes.length
+				if (n == 0) {
+					return nodeSize
+				}
+				const frameSize = getFrameSize(node.nodes)
+				return [Math.max(frameSize[0], nodeSize[0]), frameSize[1] + nodeSize[1]]
+			}
+		}
+		const createNode = (
+			parentId: TLParentId | undefined,
+			text: string,
+			x: number,
+			y: number,
+			type: 'value' | 'tactic' = 'value'
+		): [number, number] => {
+			const [w, h] = getSize({ type: 'value', text })
+			app.createShapes([
+				{
+					id: app.createShapeId(),
+					type: 'geo',
+					x,
+					y,
+					parentId,
+					props: {
+						geo: 'rectangle',
+						w,
+						h,
 						...(type == 'value'
 							? { dash: 'draw', fill: 'solid', color: 'light-green' }
 							: { dash: 'dotted', fill: 'none', color: 'grey' }),
@@ -114,11 +172,65 @@ export default function Example() {
 					},
 				},
 			])
-			return [size.w * 1.3, size.h]
+			return [w, h]
 		}
 		app.selectAll().deleteShapes()
 		// Create a shape id
 		app.focus()
+
+		// We can add level later, but now each node is on it's own level.
+		type Node = { type: 'value'; text: string } | { type: 'frame'; name: string; nodes: Node[] }
+
+		function layoutNodes(steps: ProofStep[]): Node[] {
+			if (steps.length === 0) {
+				return []
+			}
+			const [step, ...rest] = steps
+			if ('fromNode' in step) {
+				if (step.fromNode === '⊢') {
+					const text = step.tacticString.includes('let')
+						? step.tacticString
+						: `${step.hypName} : ${step.toNode}`
+					return [{ type: 'value', text }, ...layoutNodes(rest)]
+				} else {
+					return [...layoutNodes(rest), { type: 'value', text: step.fromNode }]
+				}
+			} else {
+				const frameNodes = layoutNodes(step.edges)
+				return [{ type: 'frame', name: step.name, nodes: frameNodes }, ...layoutNodes(rest)]
+			}
+		}
+
+		function drawNodes(parentId: TLParentId | undefined, [x, y]: [number, number], nodes: Node[]) {
+			for (const node of nodes) {
+				if (node.type === 'value') {
+					const size = getSize(node)
+					drawNode(parentId, node.text, [x, y], size)
+					y += size[1] + inBetweenMargin
+				} else {
+					const frameId = app.createShapeId()
+					if (node.nodes.length > 0) {
+						const [w, h] = getFrameSize(node.nodes)
+						app.createShapes([
+							{
+								id: frameId,
+								type: 'frame',
+								x,
+								y,
+								props: { w, h },
+								parentId,
+							},
+						])
+
+						drawNodes(frameId, [framePadding, framePadding], node.nodes)
+						y += h
+					}
+					const nameSize = getSize({ type: 'value', text: node.name })
+					drawNode(parentId, node.name, [x, y], nameSize)
+					y += nameSize[1] + inBetweenMargin
+				}
+			}
+		}
 
 		// Draws `steps` starting at `y` and returns the lowest y value after drawing
 		function draw(
@@ -143,6 +255,21 @@ export default function Example() {
 					const restSize = draw(parentId, y + nodeSize[1] + 20, rest)
 					return [Math.max(nodeSize[0] + 40, restSize[0]), nodeSize[1] + 20 + restSize[1]]
 				} else {
+					// Should check for intro and maybe create a new frame.
+					/* if (step.tacticString.includes('intro')) {
+						const frameId = app.createShapeId()
+						app.createShapes([
+							{
+								id: frameId,
+								type: 'frame',
+								x: 20,
+								y,
+								props: {},
+								parentId,
+							},
+						])
+						parentId = frameId
+					} */
 					const restSize = draw(parentId, y, rest)
 					const tacticSize = createNode(
 						parentId,
@@ -196,7 +323,9 @@ export default function Example() {
 			}
 		}
 		console.log('Drawing', proof)
-		draw(undefined, 0, proof)
+		// draw(undefined, 0, proof)
+		const layout = layoutNodes(proof)
+		drawNodes(undefined, [0, 0], layout)
 
 		// Zoom the camera to fit both shapes
 		app.zoomToFit()
