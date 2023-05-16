@@ -179,10 +179,17 @@ export default function Example() {
 						: `${step.hypName} : ${step.toNode}`
 					return [{ type: 'value', text }, ...layoutNodes(rest)]
 				} else {
-					return [
-						...layoutNodes(rest),
-						{ type: 'value', text: step.fromNode, viaTactic: step.tacticString },
-					]
+					const valueNode: Node = {
+						type: 'value',
+						text: step.fromNode,
+						viaTactic: step.tacticString,
+					}
+					// We should check if it's a first intro, then we should create a separate frame for it.
+					if (step.tacticString.startsWith('intro')) {
+						return [{ type: 'frame', name: step.tacticString, nodes: layoutNodes(rest) }, valueNode]
+					} else {
+						return [...layoutNodes(rest), valueNode]
+					}
 				}
 			} else {
 				const frameNodes = layoutNodes(step.edges)
@@ -217,7 +224,7 @@ export default function Example() {
 						drawNodes(frameId, [framePadding, framePadding], node.nodes)
 						y += h
 					}
-					const nameSize = drawNode(parentId, node.name, [x, y])
+					const nameSize = drawNode(parentId, node.name, [x, y], 'tactic')
 					y += nameSize[1] + inBetweenMargin
 				}
 			}
