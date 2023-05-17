@@ -14,6 +14,16 @@ type ProofStep =
 	| { name: string; edges: ProofStep[] }
 
 const proof: ProofStep[] = [
+	{ toNode: 'p', tacticString: 'apply And.intro', hypName: null, fromNode: 'p ∧ q ∧ r' },
+	{ toNode: 'q ∧ r', tacticString: 'apply And.intro', hypName: null, fromNode: 'p ∧ q ∧ r' },
+	{ toNode: '⊢', tacticString: 'exact hp', hypName: null, fromNode: 'p' },
+	{ toNode: 'q', tacticString: 'apply And.intro', hypName: null, fromNode: 'q ∧ p' },
+	{ toNode: 'p', tacticString: 'apply And.intro', hypName: null, fromNode: 'q ∧ p' },
+	{ toNode: '⊢', tacticString: 'exact hq', hypName: null, fromNode: 'q' },
+	{ toNode: '⊢', tacticString: 'exact hp', hypName: null, fromNode: 'p' },
+]
+
+const ss: ProofStep[] = [
 	{
 		toNode: '∃ p, p ≥ N ∧ Nat.Prime p',
 		tacticString: 'intro N',
@@ -77,10 +87,96 @@ const proof: ProofStep[] = [
 	},
 ]
 
+type Node2 = {
+	text: string
+	id: string
+	fromValueTactic?: FromValueTactic
+	toValueTactic?: ToValueTactic
+	name?: string
+	subNodes?: Tree2
+}
+type FromValueTactic = { text: string; toValueIds: string[] }
+type ToValueTactic = { text: string; fromValueIds: string[] }
+type NodeLayer2 = Node2[]
+type Tree2 = NodeLayer2[]
+
+const example2: Tree2 = [
+	[
+		{ text: 'p', name: 'hp', id: 'hp' },
+		{ text: 'q', name: 'hq', id: 'hq' },
+	],
+	[
+		{ text: 'q', id: 'q', toValueTactic: { text: 'exact hq', fromValueIds: ['hq'] } },
+		{ text: 'p', id: 'p2', toValueTactic: { text: 'exact hp', fromValueIds: ['hp'] } },
+	],
+	[
+		{ text: 'p', id: 'p', toValueTactic: { text: 'exact hp', fromValueIds: ['hp'] } },
+		{
+			text: 'q ∧ p',
+			id: 'qp',
+			toValueTactic: { text: 'apply And.intro', fromValueIds: ['q', 'p2'] },
+		},
+	],
+	[
+		{
+			text: 'p ∧ q ∧ p',
+			id: 'pqp',
+			toValueTactic: { text: 'apply And.intro', fromValueIds: ['p', 'qp'] },
+		},
+	],
+]
+
+type Node =
+	| { type: 'value'; text: string; id: string; name?: string; subNodes?: Tree }
+	| { type: 'tactic'; text: string; fromValueIds: string[]; toValueIds: string[] }
+
+type NodeLayer = Node[]
+
+type Tree = NodeLayer[]
+
+const example1: Tree = [
+	[
+		{ type: 'value', text: 'p', name: 'hp', id: 'hp' },
+		{ type: 'value', text: 'q', name: 'hq', id: 'hq' },
+	],
+	[
+		{ type: 'tactic', text: 'exact hq', fromValueIds: ['hq'], toValueIds: ['q'] },
+		{ type: 'tactic', text: 'exact hp', fromValueIds: ['hp'], toValueIds: ['p2'] },
+	],
+	[
+		{ type: 'value', text: 'q', id: 'q' },
+		{ type: 'value', text: 'p', id: 'p2' },
+	],
+	[
+		{ type: 'tactic', text: 'exact hp', fromValueIds: ['hp'], toValueIds: ['p'] },
+		{ type: 'tactic', text: 'apply And.intro', fromValueIds: ['q', 'p2'], toValueIds: ['qp'] },
+	],
+	[
+		{ type: 'value', text: 'p', id: 'p' },
+		{ type: 'value', text: 'q ∧ p', id: 'qp' },
+	],
+	[{ type: 'tactic', text: 'apply And.intro', fromValueIds: ['p', 'qp'], toValueIds: ['pqp'] }],
+	[{ type: 'value', text: 'p ∧ q ∧ p', id: 'pqp' }],
+]
+
 export default function Example() {
 	const handleMount = (app: App) => {
 		const inBetweenMargin = 20
 		const framePadding = 20
+
+		type Size = [number, number]
+
+		function vStack(margin: number, ...boxes: Size[]): Size {
+			const w = Math.max(...boxes.map((b) => b[0]))
+			const h = boxes.map((b) => b[1]).reduce((x, y) => x + y)
+			return [w, h + (boxes.length - 1) * margin]
+		}
+
+		function hStack(margin: number, ...boxes: Size[]): Size {
+			const w = boxes.map((b) => b[0]).reduce((x, y) => x + y)
+			const h = Math.max(...boxes.map((b) => b[1]))
+			return [w + (boxes.length - 1) * margin, h]
+		}
 
 		const drawNode = (
 			parentId: TLParentId | undefined,
@@ -111,12 +207,13 @@ export default function Example() {
 			return [w, h]
 		}
 
-		function getFrameSize(nodes: Node[]): [number, number] {
-			const size = vStack(...nodes.map(getSize))
-			return [
-				size[0] + framePadding * 2,
-				size[1] + inBetweenMargin * (nodes.length - 1) + framePadding * 2,
-			]
+		function getTreeSize(tree: Tree): [number, number] {
+			return vStack(inBetweenMargin, ...tree.map((l) => hStack(inBetweenMargin, ...l.map(getSize))))
+		}
+
+		function getFrameSize(tree: Tree): [number, number] {
+			const size = getTreeSize(tree)
+			return [size[0] + framePadding * 2, size[1] + framePadding * 2]
 		}
 
 		function getTextSize(text: string): [number, number] {
@@ -135,39 +232,23 @@ export default function Example() {
 			]
 		}
 
-		type Size = [number, number]
-
-		function vStack(...boxes: Size[]): Size {
-			const w = Math.max(...boxes.map((b) => b[0]))
-			const h = boxes.map((b) => b[1]).reduce((x, y) => x + y)
-			return [w, h]
-		}
-
 		function getSize(node: Node): [number, number] {
 			if (node.type === 'value') {
-				const tacticSize: Size = node.viaTactic ? getTextSize(node.viaTactic) : [0, 0]
 				const valueSize = getTextSize(node.text)
-				return vStack(tacticSize, valueSize)
-			} else {
-				const nodeSize = getSize({ type: 'value', text: node.name })
-				const n = node.nodes.length
-				if (n == 0) {
-					return nodeSize
+				if (!node.subNodes) {
+					return valueSize
 				}
-				const frameSize = getFrameSize(node.nodes)
-				return vStack(frameSize, nodeSize)
+				const frameSize = getFrameSize(node.subNodes)
+				return vStack(0, frameSize, valueSize)
+			} else {
+				return getTextSize(node.text)
 			}
 		}
 		app.selectAll().deleteShapes()
 		// Create a shape id
 		app.focus()
 
-		// We can add level later, but now each node is on it's own level.
-		type Node =
-			| { type: 'value'; text: string; viaTactic?: string | null }
-			| { type: 'frame'; name: string; nodes: Node[] }
-
-		function layoutNodes(steps: ProofStep[]): Node[] {
+		/*function layoutNodes(steps: ProofStep[]): Node[] {
 			if (steps.length === 0) {
 				return []
 			}
@@ -184,55 +265,75 @@ export default function Example() {
 						text: step.fromNode,
 						viaTactic: step.tacticString,
 					}
-					// We should check if it's a first intro, then we should create a separate frame for it.
+					// We should check if it's an intro (on the goal) , then we should create a separate frame for it.
 					if (step.tacticString.startsWith('intro')) {
-						return [{ type: 'frame', name: step.tacticString, nodes: layoutNodes(rest) }, valueNode]
+						return [{ type: 'frame', name: step.tacticString, nodes: [] }, valueNode]
 					} else {
-						return [...layoutNodes(rest), valueNode]
+						// listBefore [['q', 'q and p'], ['p and q and p']]
+						const levels = layoutNodes(rest)
+						// fromNode 'q and p' -> toNode: 'p'
+						// listAfter [['p'], ['q', 'q and p'], ['p and q and p']]
+						for (let i = levels.length - 1; i >= 0; i--) {
+							const n = levels[i]
+							if (n.type === 'value' && n.text == step.fromNode) {
+								return [
+									...levels.slice(0, i),
+									{ type: 'value', text: step.toNode },
+									...levels.slice(i),
+								]
+							}
+						}
+						return [
+							{ type: 'value', text: step.toNode },
+							{ type: 'value', text: step.fromNode },
+						]
 					}
 				}
 			} else {
 				const frameNodes = layoutNodes(step.edges)
 				return [{ type: 'frame', name: step.name, nodes: frameNodes }, ...layoutNodes(rest)]
 			}
-		}
+		}*/
 
-		function drawNodes(parentId: TLParentId | undefined, [x, y]: [number, number], nodes: Node[]) {
-			for (const node of nodes) {
-				if (node.type === 'value') {
-					if (node.viaTactic) {
-						const tacticSize = drawNode(parentId, node.viaTactic, [x, y], 'tactic')
-						y += tacticSize[1]
-					}
-					const valueSize = drawNode(parentId, node.text, [x, y])
-					y += valueSize[1] + inBetweenMargin
-				} else {
-					const frameId = app.createShapeId()
-					if (node.nodes.length > 0) {
-						const [w, h] = getFrameSize(node.nodes)
-						app.createShapes([
-							{
-								id: frameId,
-								type: 'frame',
-								x,
-								y,
-								props: { w, h },
-								parentId,
-							},
-						])
+		function drawNodes(parentId: TLParentId | undefined, [x0, y0]: [number, number], tree: Tree) {
+			let y = y0
+			for (const layer of tree) {
+				let x = x0
+				for (const node of layer) {
+					if (node.type === 'value') {
+						const valueSize = drawNode(parentId, node.text, [x, y])
+						x += valueSize[1] + inBetweenMargin
+						/*						const frameId = app.createShapeId()
+						if (node) {
+							const [w, h] = getFrameSize(node.nodes)
+							app.createShapes([
+								{
+									id: frameId,
+									type: 'frame',
+									x,
+									y,
+									props: { w, h },
+									parentId,
+								},
+							])
 
-						drawNodes(frameId, [framePadding, framePadding], node.nodes)
-						y += h
+							drawNodes(frameId, [framePadding, framePadding], node.nodes)
+							y += h
+						}
+						const nameSize = drawNode(parentId, node.name, [x, y], 'tactic')
+						y += nameSize[1] + inBetweenMargin*/
+					} else {
+						const tacticSize = drawNode(parentId, node.text, [x, y], 'tactic')
+						x += tacticSize[0] + inBetweenMargin
 					}
-					const nameSize = drawNode(parentId, node.name, [x, y], 'tactic')
-					y += nameSize[1] + inBetweenMargin
 				}
+				y += getTreeSize([layer])[1] + inBetweenMargin
 			}
 		}
 
 		console.log('Drawing', proof)
-		const layout = layoutNodes(proof)
-		drawNodes(undefined, [0, 0], layout)
+		// const layout = layoutNodes(proof)
+		drawNodes(undefined, [0, 0], example1)
 
 		// Zoom the camera to fit both shapes
 		app.zoomToFit()
